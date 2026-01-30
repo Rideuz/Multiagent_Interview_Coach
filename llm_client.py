@@ -10,10 +10,10 @@ _client: OpenAI | None = None
 def get_client() -> OpenAI:
     global _client
     if _client is None:
-        _client = OpenAI(
-            api_key=config.API_KEY,
-            base_url=config.BASE_URL,
-        )
+        kwargs = {"api_key": config.API_KEY}
+        if config.BASE_URL is not None:
+            kwargs["base_url"] = config.BASE_URL
+        _client = OpenAI(**kwargs)
     return _client
 
 

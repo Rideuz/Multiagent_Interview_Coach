@@ -1,11 +1,15 @@
 """
 Multi-Agent Interview Coach — главный цикл.
-Вводные (Позиция, Грейд, Опыт) -> диалог (Вопрос–Ответ) с логами мыслей -> финальный фидбэк.
+Вводные: структурированные (имя, позиция, грейд, опыт, поведение) или неструктурированный текст (Extractor).
+Диалог ведут Interviewer + Observer; вердикт — Manager; отчёт оформляет FeedbackWriter.
 """
+import os
 from interview_logger import init_log, append_turn, set_final_feedback, save_log
 from agents.observer import run_observer
 from agents.interviewer import run_interviewer, run_interviewer_first_message
+from agents.extractor import extract_candidate_info
 from feedback import generate_final_feedback
+from candidate_input import normalize_candidate_input, candidate_input_to_run_params, load_candidate_from_json, CandidateInput
 
 
 STOP_PHRASES = (
@@ -30,12 +34,15 @@ def run_interview(
     experience: str,
     log_filepath: str | None = None,
     predefined_turns: list[str] | None = None,
+    behavior: list[str] | None = None,
 ) -> str:
     """
     Запуск интервью. Возвращает путь к сохранённому логу.
-    Если predefined_turns задан — реплики кандидата берутся из списка по порядку (для прогона сценария).
+    predefined_turns — реплики кандидата по порядку (для сценария); если не задан, но задано behavior — используется behavior.
     """
-    log = init_log(participant_name, position, grade, experience)
+    if predefined_turns is None and behavior:
+        predefined_turns = behavior
+    log = init_log(participant_name, position, grade, experience, behavior=behavior or (predefined_turns if predefined_turns else None))
     dialogue_history: list[dict] = []
     topics_covered: list[str] = []
     turn_id = 0
@@ -52,6 +59,8 @@ def run_interview(
     )
     dialogue_history.append({"role": "assistant", "content": first_message})
 
+    print("\n--- Внутренние заметки (Observer) ---")
+    print("[Observer]: Старт интервью. [Interviewer]: Приглашение к представлению и первый контекст.")
     print("\n--- Интервьюер ---")
     print(first_message)
     print()
@@ -94,6 +103,8 @@ def run_interview(
             grade=grade,
             topics_covered=topics_covered,
         )
+        print("\n--- Внутренние заметки (Observer) ---")
+        print(internal_thoughts)
 
         # Interviewer генерирует видимое сообщение по инструкции Observer
         agent_message = run_interviewer(
@@ -136,8 +147,64 @@ def run_interview(
     return path
 
 
+def run_interview_from_candidate_input(
+    candidate_input: CandidateInput | dict,
+    log_filepath: str | None = None,
+) -> str:
+    """
+    Запуск интервью из структурированного ввода (таблица 5 столбцов: имя, позиция, грейд, опыт, поведение).
+    candidate_input: dict с ключами имя/name, позиция/position, грейд/grade, опыт/experience, поведение/behavior (список строк).
+    """
+    normalized = normalize_candidate_input(dict(candidate_input))
+    params = candidate_input_to_run_params(normalized)
+    return run_interview(
+        participant_name=params["participant_name"],
+        position=params["position"],
+        grade=params["grade"],
+        experience=params["experience"],
+        log_filepath=log_filepath,
+        predefined_turns=params.get("predefined_turns"),
+        behavior=normalized.get("behavior"),
+    )
+
+
 def main():
     print("=== Multi-Agent Interview Coach ===\n")
+    print("Режим ввода: 1 — пошагово (ФИО, позиция, грейд, опыт)")
+    print("            2 — вставить текст самопрезентации (данные извлечёт агент Extractor)")
+    print("            3 — путь к JSON с полями: имя, позиция, грейд, опыт, поведение (список ответов по вопросам)")
+    mode = input("Выбор (1/2/3): ").strip() or "1"
+
+    if mode == "2":
+        text = input("Вставьте текст самопрезентации (например: Я Александр, 5 лет Backend...):\n").strip()
+        if not text:
+            print("Текст пуст, используем значения по умолчанию.")
+            data = {}
+        else:
+            data = extract_candidate_info(text)
+            print("Извлечено:", data)
+        params = candidate_input_to_run_params(normalize_candidate_input(data))
+        print("\nДля завершения введите: «Стоп интервью» или «Давай фидбэк».\n")
+        run_interview(
+            participant_name=params["participant_name"],
+            position=params["position"],
+            grade=params["grade"],
+            experience=params["experience"],
+            predefined_turns=params.get("predefined_turns"),
+        )
+        return
+
+    if mode == "3":
+        path = input("Путь к JSON-файлу: ").strip()
+        if path and os.path.isfile(path):
+            candidate = load_candidate_from_json(path)
+            print("Загружено:", {k: v for k, v in candidate.items() if k != "behavior"}, "поведение: N пунктов" if candidate.get("behavior") else "")
+            run_interview_from_candidate_input(candidate, log_filepath=None)
+        else:
+            print("Файл не найден. Запуск пошагового ввода.")
+        return
+
+    # Режим 1 — пошаговый ввод
     participant_name = input("ФИО кандидата (на русском): ").strip() or "Кандидат"
     position = input("Позиция (например, Backend Developer): ").strip() or "Backend Developer"
     grade = input("Грейд (Junior / Middle / Senior): ").strip() or "Junior"

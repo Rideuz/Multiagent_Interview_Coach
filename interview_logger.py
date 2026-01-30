@@ -15,9 +15,15 @@ def get_log_path(filename: str | None = None) -> str:
     return base
 
 
-def init_log(participant_name: str, position: str, grade: str, experience: str) -> dict:
-    """Инициализация структуры лога сессии."""
-    return {
+def init_log(
+    participant_name: str,
+    position: str,
+    grade: str,
+    experience: str,
+    behavior: list[str] | None = None,
+) -> dict:
+    """Инициализация структуры лога сессии. behavior — список пунктов "как отвечать на каждый вопрос" (для сценариев)."""
+    log = {
         "participant_name": participant_name,
         "position": position,
         "grade": grade,
@@ -25,6 +31,9 @@ def init_log(participant_name: str, position: str, grade: str, experience: str) 
         "turns": [],
         "final_feedback": None,
     }
+    if behavior is not None:
+        log["behavior"] = behavior
+    return log
 
 
 def append_turn(
